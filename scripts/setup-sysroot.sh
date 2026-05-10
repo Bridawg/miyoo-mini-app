@@ -43,6 +43,10 @@ apt-get download \
     libsdl-ttf2.0-0:armhf \
     libsdl2-dev:armhf \
     libsdl2-2.0-0:armhf \
+    libsdl-image1.2-dev:armhf \
+    libsdl-image1.2:armhf \
+    libjpeg-turbo8:armhf \
+    libpng16-16t64:armhf \
     libjson-c-dev:armhf \
     libjson-c5:armhf \
     libcurl4-openssl-dev:armhf \
