@@ -5,6 +5,12 @@
 #include "SDL/SDL_ttf.h"
 
 #include "platform.h"
+#include "rom.h"
+
+typedef enum {
+    SCREEN_PLATFORMS = 0,
+    SCREEN_ROMS,
+} Screen;
 
 typedef struct {
     int display_width;
@@ -12,12 +18,20 @@ typedef struct {
     SDL_Surface* screen;
     SDL_Surface* renderer;
     TTF_Font* font;
+    /* Platform list */
     RomMPlatform* platforms;
     int platform_count;
+    int active_platform_idx;   /* which platform we're browsing ROMs for */
+    /* ROM list */
+    RomMRom* roms;
+    int rom_count;
+    /* UI state */
+    Screen current_screen;
     int selected_index;
     int scroll_offset;
-    int last_tick_count;
-    int cur_tick_count;
+    Uint32 last_tick_count;
+    Uint32 cur_tick_count;
+    /* Connection */
     char* server_url;
     char* username;
     char* password;

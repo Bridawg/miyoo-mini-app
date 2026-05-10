@@ -37,8 +37,12 @@ typedef struct RomMRom {
 
 // Function declarations for memory management
 void free_rom(RomMRom* rom);
+void free_rom_fields(RomMRom* rom);
+void free_rom_list(RomMRom* roms, int count);
 
 // Function declarations for operations
+int fetch_rom_list(const char* server_url, const char* username, const char* password,
+                   int platform_id, RomMRom** rom_list, int* rom_count);
 int download_rom(const char* url, const char* username, const char* password, const char* destination);
 
 #endif /* ROMM_ROM_H */
