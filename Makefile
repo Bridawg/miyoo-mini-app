@@ -9,7 +9,7 @@ CFLAGS  = -Wall -Wextra -O2 \
 
 LDFLAGS = --sysroot=$(SYSROOT) \
            -L$(SYSROOT)/usr/lib/arm-linux-gnueabihf \
-           -ljson-c -lSDL -lSDL_ttf -lcurl -lpthread \
+           -ljson-c -lSDL -lSDL_ttf -lSDL_image -lcurl -lpthread \
            -Wl,-rpath-link,$(SYSROOT)/usr/lib/arm-linux-gnueabihf \
            -Wl,--allow-shlib-undefined
 
