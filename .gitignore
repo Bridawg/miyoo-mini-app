@@ -2,7 +2,9 @@
 *.o
 romm
 App/RomM/romm
+App/RomM/covers/
 config.txt
+romm-miyoo.zip
 include/json-c
 lib/libjson-c.a
 sysroot/

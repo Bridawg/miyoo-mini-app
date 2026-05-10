@@ -28,7 +28,21 @@ $(TARGET): $(OBJS)
 clean:
 	rm -f $(OBJS) $(TARGET)
 
+# ── Device install (direct SD card mount) ───────────────────────────
 INSTALL_DIR = /mnt/SDCARD/App/RomM
 
 install: $(TARGET)
 	install -m 755 $(TARGET) $(INSTALL_DIR)/$(TARGET)
+
+# ── Package (produces romm-miyoo.zip for SD card deployment) ────────
+DIST_APP = App/RomM
+
+.PHONY: package
+package: $(TARGET)
+	mkdir -p $(DIST_APP)/covers
+	cp $(TARGET) $(DIST_APP)/
+	cd App && zip -r ../romm-miyoo.zip RomM/
+	@echo ""
+	@echo "Created romm-miyoo.zip"
+	@echo "Extract to the root of your Miyoo Mini Plus SD card:"
+	@echo "  unzip -o romm-miyoo.zip -d /path/to/sdcard"
