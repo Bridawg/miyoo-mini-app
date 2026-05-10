@@ -11,6 +11,7 @@
 typedef enum {
     SCREEN_PLATFORMS = 0,
     SCREEN_ROMS,
+    SCREEN_SETTINGS,
 } Screen;
 
 typedef struct {
@@ -56,6 +57,13 @@ typedef struct {
     char* server_url;
     char* username;
     char* password;
+
+    /* Settings screen */
+    int  settings_field;        /* 0=server_url  1=username  2=password */
+    int  settings_mode;         /* 0=field select  1=keyboard active    */
+    int  kbd_row;
+    int  kbd_col;
+    char settings_buf[3][256];  /* working copies while editing         */
 } MenuState;
 
 #endif /* ROMM_MENU_STATE_H */

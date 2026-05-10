@@ -22,12 +22,32 @@
 #define CONTENT_H    (SCREEN_H - TOPBAR_H - HINTBAR_H)   /* 380 */
 #define ITEM_H        34
 #define MAX_ITEMS    (CONTENT_H / ITEM_H)                 /* 11  */
-#define COVER_W      220   /* right-panel width in ROM screen       */
-#define LIST_W       (SCREEN_W - COVER_W)                 /* 420  */
+#define COVER_W      220
+#define LIST_W       (SCREEN_W - COVER_W)
 #define COVER_MAX_W  200
-#define COVER_MAX_H  266   /* ~3:4 portrait box                     */
-#define FRAME_MS      16   /* ~60 fps                               */
-#define COVER_DELAY  300   /* ms stable before cover load triggers  */
+#define COVER_MAX_H  266
+#define FRAME_MS      16
+#define COVER_DELAY  300
+
+/* Virtual keyboard ─────────────────────────────────────────────── */
+#define KBD_SPC       '\x01'   /* insert space       */
+#define KBD_DEL       '\x08'   /* delete last char   */
+#define KBD_ROW_COUNT  6
+#define KBD_CELL_W    46       /* 13 cols × 46 = 598, centred in 640 */
+#define KBD_CELL_H    28
+#define KBD_X0        21       /* (640 − 13×46) / 2                  */
+#define KBD_Y0       118       /* starts just below the text box     */
+
+static const char* kbd_rows[KBD_ROW_COUNT] = {
+    "abcdefghijklm",
+    "nopqrstuvwxyz",
+    "ABCDEFGHIJKLM",
+    "NOPQRSTUVWXYZ",
+    "0123456789.:/",
+    "-_@#!?\x01\x08",           /* SP and DEL at end of last row      */
+};
+
+static const char* settings_labels[] = {"Server URL", "Username", "Password"};
 
 /* Onion OS skin paths */
 #define SKIN_DIR    "/mnt/SDCARD/miyoo/app/skin/"
@@ -37,16 +57,15 @@
 #define SKIN_ICON_B SKIN_DIR "icon-B-54.png"
 
 /* Onion OS button mapping */
-#define KEY_A     SDLK_SPACE
-#define KEY_B     SDLK_LCTRL
-#define KEY_START SDLK_RETURN
+#define KEY_A      SDLK_SPACE
+#define KEY_B      SDLK_LCTRL
+#define KEY_START  SDLK_RETURN
+#define KEY_SELECT SDLK_ESCAPE
+
+/* Config path */
+#define CONFIG_PATH "/mnt/SDCARD/App/RomM/config.txt"
 
 /* ── Helpers ────────────────────────────────────────────────────── */
-
-static SDL_Surface* try_img_load(const char* path) {
-    SDL_Surface* s = IMG_Load(path);
-    return s; /* NULL is fine — skin is optional */
-}
 
 static TTF_Font* try_open_font(const char* primary, int size) {
     static const char* fallbacks[] = {
@@ -79,7 +98,6 @@ void cleanup_menu(MenuState* s) {
     if (s->skin_topbar) SDL_FreeSurface(s->skin_topbar);
     if (s->skin_icon_a) SDL_FreeSurface(s->skin_icon_a);
     if (s->skin_icon_b) SDL_FreeSurface(s->skin_icon_b);
-    /* s->screen is owned by SDL */
     if (s->renderer)    SDL_FreeSurface(s->renderer);
     TTF_Quit();
     IMG_Quit();
@@ -96,9 +114,8 @@ int init_menu(MenuState* s) {
     if (TTF_Init() < 0) {
         fprintf(stderr, "TTF_Init: %s\n", TTF_GetError()); SDL_Quit(); return -1;
     }
-    if (IMG_Init(IMG_INIT_JPG | IMG_INIT_PNG) == 0) {
+    if (IMG_Init(IMG_INIT_JPG | IMG_INIT_PNG) == 0)
         fprintf(stderr, "IMG_Init: %s\n", IMG_GetError());
-    }
 
     const SDL_VideoInfo* info = SDL_GetVideoInfo();
     if (!info) {
@@ -108,7 +125,6 @@ int init_menu(MenuState* s) {
     s->display_width  = info->current_w;
     s->display_height = info->current_h;
 
-    /* Load theme then fonts */
     theme_load(&s->theme);
     s->title_font = try_open_font(s->theme.title.font, s->theme.title.size);
     s->list_font  = try_open_font(s->theme.list.font,  s->theme.list.size);
@@ -132,11 +148,10 @@ int init_menu(MenuState* s) {
         TTF_Quit(); IMG_Quit(); SDL_Quit(); return -1;
     }
 
-    /* Load skin assets (failures are non-fatal) */
-    s->skin_bg     = try_img_load(SKIN_BG);
-    s->skin_topbar = try_img_load(SKIN_TOPBAR);
-    s->skin_icon_a = try_img_load(SKIN_ICON_A);
-    s->skin_icon_b = try_img_load(SKIN_ICON_B);
+    s->skin_bg     = IMG_Load(SKIN_BG);
+    s->skin_topbar = IMG_Load(SKIN_TOPBAR);
+    s->skin_icon_a = IMG_Load(SKIN_ICON_A);
+    s->skin_icon_b = IMG_Load(SKIN_ICON_B);
 
     SDL_FillRect(s->screen, NULL, SDL_MapRGB(s->screen->format, 0, 0, 0));
     SDL_Flip(s->screen);
@@ -153,14 +168,15 @@ int init_menu(MenuState* s) {
         TTF_CloseFont(s->title_font); TTF_CloseFont(s->list_font);
         TTF_Quit(); IMG_Quit(); SDL_Quit(); return -1;
     }
+    s->server_url[0] = s->username[0] = s->password[0] = '\0';
     return 0;
 }
 
 /* ── Config ─────────────────────────────────────────────────────── */
 
-int read_config(MenuState* s, const char* path) {
+static int read_config(MenuState* s, const char* path) {
     FILE* f = fopen(path, "r");
-    if (!f) { fprintf(stderr, "Cannot open config: %s\n", path); return -1; }
+    if (!f) return -1;
     char line[256];
     while (fgets(line, sizeof(line), f)) {
         line[strcspn(line, "\n")] = 0;
@@ -169,6 +185,14 @@ int read_config(MenuState* s, const char* path) {
         else if (!strncmp(line, "password=",    9)) snprintf(s->password,   256, "%s", line +  9);
     }
     fclose(f); return 0;
+}
+
+static void save_config(MenuState* s) {
+    FILE* f = fopen(CONFIG_PATH, "w");
+    if (!f) return;
+    fprintf(f, "server_url=%s\nusername=%s\npassword=%s\n",
+            s->server_url, s->username, s->password);
+    fclose(f);
 }
 
 /* ── Drawing primitives ─────────────────────────────────────────── */
@@ -185,11 +209,9 @@ static void draw_text(MenuState* s, TTF_Font* font,
 static void draw_text_clipped(MenuState* s, TTF_Font* font,
                               const char* text, int x, int y,
                               int max_w, SDL_Color col) {
-    /* Render once to check width; truncate with ellipsis if needed */
     int tw, th; TTF_SizeText(font, text, &tw, &th);
     if (tw <= max_w) { draw_text(s, font, text, x, y, col); return; }
 
-    /* Binary-search the truncation point */
     char buf[512];
     strncpy(buf, text, sizeof(buf) - 4);
     int lo = 0, hi = (int)strlen(buf);
@@ -212,12 +234,10 @@ static void flip(MenuState* s) {
 /* ── Render helpers ─────────────────────────────────────────────── */
 
 static void draw_background(MenuState* s) {
-    if (s->skin_bg) {
+    if (s->skin_bg)
         SDL_BlitSurface(s->skin_bg, NULL, s->renderer, NULL);
-    } else {
-        SDL_FillRect(s->renderer, NULL,
-                     SDL_MapRGB(s->renderer->format, 20, 20, 30));
-    }
+    else
+        SDL_FillRect(s->renderer, NULL, SDL_MapRGB(s->renderer->format, 20, 20, 30));
 }
 
 static void draw_topbar(MenuState* s, const char* title) {
@@ -242,7 +262,7 @@ static void draw_hintbar(MenuState* s, const char* a_label, const char* b_label)
     int cx = 16;
 
     if (s->skin_icon_a) {
-        SDL_Rect src = {0, 0, 24, 24};  /* use 24×24 crop of 54×54 icon */
+        SDL_Rect src = {0, 0, 24, 24};
         SDL_Rect dst = {cx, icon_y, 24, 24};
         SDL_BlitSurface(s->skin_icon_a, &src, s->renderer, &dst);
         cx += 28;
@@ -259,9 +279,17 @@ static void draw_hintbar(MenuState* s, const char* a_label, const char* b_label)
     }
 }
 
+/* Draw right-aligned dim text inside the hint bar (call after draw_hintbar). */
+static void draw_hintbar_right(MenuState* s, const char* text) {
+    SDL_Color dim = {130, 130, 130, 0};
+    int tw, th; TTF_SizeText(s->list_font, text, &tw, &th);
+    int y = SCREEN_H - HINTBAR_H + (HINTBAR_H - th) / 2;
+    draw_text(s, s->list_font, text, SCREEN_W - tw - 16, y, dim);
+}
+
 static void draw_list(MenuState* s, int list_w, int count,
                       const char* (*label)(MenuState*, int)) {
-    SDL_Color dim  = {180, 180, 180, 0};
+    SDL_Color dim = {180, 180, 180, 0};
 
     for (int i = 0; i < MAX_ITEMS; i++) {
         int idx = i + s->scroll_offset;
@@ -287,7 +315,6 @@ static void draw_list(MenuState* s, int list_w, int count,
                           12, ty, list_w - 20, col);
     }
 
-    /* Scroll indicator on the right edge */
     if (count > MAX_ITEMS) {
         int track_h = CONTENT_H;
         int thumb_h = track_h * MAX_ITEMS / count;
@@ -301,17 +328,14 @@ static void draw_list(MenuState* s, int list_w, int count,
 static void draw_cover_panel(MenuState* s) {
     int px = LIST_W;
     SDL_Rect panel = {px, TOPBAR_H, COVER_W, CONTENT_H};
-    SDL_FillRect(s->renderer, &panel,
-                 SDL_MapRGB(s->renderer->format, 10, 10, 20));
+    SDL_FillRect(s->renderer, &panel, SDL_MapRGB(s->renderer->format, 10, 10, 20));
 
     if (s->cover) {
-        /* Centre the cover in the panel */
         int cx = px + (COVER_W  - s->cover->w) / 2;
         int cy = TOPBAR_H + (CONTENT_H - s->cover->h) / 2;
         SDL_Rect dst = {cx, cy, s->cover->w, s->cover->h};
         SDL_BlitSurface(s->cover, NULL, s->renderer, &dst);
     } else {
-        /* Placeholder */
         SDL_Color dim = {60, 60, 80, 0};
         int tx = px + COVER_W / 2 - 30;
         int ty = TOPBAR_H + CONTENT_H / 2 - 8;
@@ -331,19 +355,16 @@ static const char* rom_label(MenuState* s, int i) {
 
 static void maybe_load_cover(MenuState* s) {
     if (s->current_screen != SCREEN_ROMS || s->rom_count == 0) return;
-
     Uint32 now = SDL_GetTicks();
     if (now - s->selection_tick < COVER_DELAY) return;
 
     RomMRom* rom = &s->roms[s->selected_index];
-    if (rom->id == s->cover_rom_id) return; /* already loaded */
-
+    if (rom->id == s->cover_rom_id) return;
     if (s->cover) { SDL_FreeSurface(s->cover); s->cover = NULL; }
     s->cover_rom_id = rom->id;
 
     const char* path = rom->path_cover_s;
     if (!path || !path[0]) return;
-
     s->cover = cover_get(s->server_url, s->username, s->password,
                          rom->id,
                          rom->platform_slug ? rom->platform_slug : "unknown",
@@ -381,16 +402,13 @@ static void ensure_dir(const char* p) { mkdir(p, 0755); }
 static int do_download(MenuState* s, RomMRom* rom) {
     const char* slug = rom->platform_slug ? rom->platform_slug : "unknown";
     const char* file = rom->file_name     ? rom->file_name     : "rom";
-
     char dir[512], dest[768], url[1024];
     snprintf(dir,  sizeof(dir),  "/mnt/SDCARD/Roms/%s", slug);
     snprintf(dest, sizeof(dest), "%s/%s", dir, file);
     snprintf(url,  sizeof(url),  "%s/api/roms/%d/content/%s",
              s->server_url, rom->id, file);
-
     ensure_dir("/mnt/SDCARD/Roms");
     ensure_dir(dir);
-
     return download_rom(url, s->username, s->password, dest);
 }
 
@@ -407,32 +425,149 @@ static void render_message(MenuState* s, const char* msg) {
     flip(s);
 }
 
+/* ── Settings screen ─────────────────────────────────────────────── */
+
+static void enter_settings(MenuState* s) {
+    strncpy(s->settings_buf[0], s->server_url, 255); s->settings_buf[0][255] = '\0';
+    strncpy(s->settings_buf[1], s->username,   255); s->settings_buf[1][255] = '\0';
+    strncpy(s->settings_buf[2], s->password,   255); s->settings_buf[2][255] = '\0';
+    s->settings_field = 0;
+    s->settings_mode  = 0;
+    s->kbd_row        = 0;
+    s->kbd_col        = 0;
+    s->current_screen = SCREEN_SETTINGS;
+}
+
+static void kbd_append(MenuState* s, char ch) {
+    char* buf = s->settings_buf[s->settings_field];
+    size_t len = strlen(buf);
+    if (len >= 255) return;
+    buf[len] = ch; buf[len + 1] = '\0';
+}
+
+static void kbd_backspace(MenuState* s) {
+    char* buf = s->settings_buf[s->settings_field];
+    size_t len = strlen(buf);
+    if (len > 0) buf[len - 1] = '\0';
+}
+
+static void render_settings(MenuState* s) {
+    draw_background(s);
+
+    SDL_Color white   = {255, 255, 255, 0};
+    SDL_Color gray    = {140, 140, 140, 0};
+    Uint32    sel_bg  = SDL_MapRGB(s->renderer->format,
+                            s->theme.selected_bg.r,
+                            s->theme.selected_bg.g,
+                            s->theme.selected_bg.b);
+    Uint32    dark_bg = SDL_MapRGB(s->renderer->format, 30, 30, 40);
+
+    if (s->settings_mode == 0) {
+        /* ── Field selection ── */
+        draw_topbar(s, "Settings");
+
+        for (int i = 0; i < 3; i++) {
+            int ly = 60 + i * 100;
+            int by = ly + 22;
+            bool active = (i == s->settings_field);
+
+            draw_text(s, s->list_font, settings_labels[i], 16, ly,
+                      active ? white : gray);
+
+            SDL_Rect box = {16, by, SCREEN_W - 32, 30};
+            SDL_FillRect(s->renderer, &box, active ? sel_bg : dark_bg);
+
+            /* Show password as asterisks */
+            char disp[260] = {0};
+            if (i == 2) {
+                int n = (int)strlen(s->settings_buf[2]);
+                for (int j = 0; j < n && j < 255; j++) disp[j] = '*';
+            } else {
+                strncpy(disp, s->settings_buf[i], 255);
+            }
+            draw_text_clipped(s, s->list_font, disp[0] ? disp : " ",
+                              22, by + 3, SCREEN_W - 50, white);
+        }
+
+        draw_hintbar(s, "Edit", "Cancel");
+        draw_hintbar_right(s, "Start: Save");
+
+    } else {
+        /* ── Keyboard mode ── */
+        char title[64];
+        snprintf(title, sizeof(title), "Edit: %s",
+                 settings_labels[s->settings_field]);
+        draw_topbar(s, title);
+
+        /* Current value box */
+        SDL_Rect box = {16, 58, SCREEN_W - 32, 34};
+        SDL_FillRect(s->renderer, &box, sel_bg);
+
+        char disp[260] = {0};
+        const char* src = s->settings_buf[s->settings_field];
+        if (s->settings_field == 2) {
+            int n = (int)strlen(src);
+            for (int j = 0; j < n && j < 255; j++) disp[j] = '*';
+        } else {
+            strncpy(disp, src, 255);
+        }
+        strncat(disp, "|", sizeof(disp) - strlen(disp) - 1);
+        draw_text_clipped(s, s->list_font, disp, 22, 64, SCREEN_W - 50, white);
+
+        /* Keyboard grid */
+        for (int r = 0; r < KBD_ROW_COUNT; r++) {
+            const char* row = kbd_rows[r];
+            int ncols = (int)strlen(row);
+            for (int c = 0; c < ncols; c++) {
+                int kx = KBD_X0 + c * KBD_CELL_W;
+                int ky = KBD_Y0 + r * KBD_CELL_H;
+                bool sel = (r == s->kbd_row && c == s->kbd_col);
+
+                if (sel) {
+                    SDL_Rect cell = {kx - 2, ky - 2, KBD_CELL_W - 2, KBD_CELL_H - 2};
+                    SDL_FillRect(s->renderer, &cell, sel_bg);
+                }
+
+                char ch = row[c];
+                char lbuf[4] = {ch, '\0', '\0', '\0'};
+                const char* label = lbuf;
+                if (ch == KBD_SPC) label = "SP";
+                else if (ch == KBD_DEL) label = "<-";
+
+                draw_text(s, s->list_font, label, kx + 4, ky + 2,
+                          sel ? s->theme.selected_text : white);
+            }
+        }
+
+        draw_hintbar(s, "Type", "Delete");
+        draw_hintbar_right(s, "Start: Done");
+    }
+
+    flip(s);
+}
+
 /* ── Screen renderers ────────────────────────────────────────────── */
 
 static void render_platforms(MenuState* s) {
     draw_background(s);
-
     char title[64];
     snprintf(title, sizeof(title), "Platforms  (%d)", s->platform_count);
     draw_topbar(s, title);
-
     draw_list(s, SCREEN_W, s->platform_count, platform_label);
     draw_hintbar(s, "Select", NULL);
+    draw_hintbar_right(s, "Menu: Settings");
     flip(s);
 }
 
 static void render_roms(MenuState* s) {
     draw_background(s);
-
     char title[128];
     snprintf(title, sizeof(title), "%s  (%d ROMs)",
              s->platforms[s->active_platform_idx].name,
              s->rom_count);
     draw_topbar(s, title);
 
-    /* Clip list rendering to the left panel */
-    SDL_SetClipRect(s->renderer,
-                    &(SDL_Rect){0, TOPBAR_H, LIST_W, CONTENT_H});
+    SDL_SetClipRect(s->renderer, &(SDL_Rect){0, TOPBAR_H, LIST_W, CONTENT_H});
     draw_list(s, LIST_W, s->rom_count, rom_label);
     SDL_SetClipRect(s->renderer, NULL);
 
@@ -443,21 +578,29 @@ static void render_roms(MenuState* s) {
 
 /* ── Main ───────────────────────────────────────────────────────── */
 
+/* Load platforms; show error overlay for 2.5 s on failure. Returns 0 on success. */
+static int load_platforms(MenuState* s) {
+    render_message(s, "Loading platforms...");
+    if (fetch_platform_list(s->server_url, s->username, s->password,
+                            &s->platforms, &s->platform_count) < 0) {
+        render_message(s, "Error: could not reach RomM server");
+        SDL_Delay(2500);
+        return -1;
+    }
+    return 0;
+}
+
 int main(void) {
     MenuState s = {0};
 
     if (init_menu(&s) < 0) { fprintf(stderr, "init failed\n"); return 1; }
-    if (read_config(&s, "/mnt/SDCARD/App/RomM/config.txt") < 0) {
-        cleanup_menu(&s); return 1;
-    }
 
-    render_message(&s, "Loading platforms...");
-
-    if (fetch_platform_list(s.server_url, s.username, s.password,
-                            &s.platforms, &s.platform_count) < 0) {
-        render_message(&s, "Error: could not reach RomM server");
-        SDL_Delay(2500);
-        cleanup_menu(&s); return 1;
+    if (read_config(&s, CONFIG_PATH) == 0 && s.server_url[0]) {
+        load_platforms(&s);
+        s.current_screen = SCREEN_PLATFORMS;
+    } else {
+        /* First run or missing config — open settings directly */
+        enter_settings(&s);
     }
 
     bool quit = false;
@@ -468,11 +611,12 @@ int main(void) {
             if (ev.type != SDL_KEYDOWN) continue;
             SDLKey key = ev.key.keysym.sym;
 
-            if (key == KEY_START) { quit = true; break; }
-
+            /* ── Platform list ── */
             if (s.current_screen == SCREEN_PLATFORMS) {
-                if      (key == SDLK_UP)   nav_up(&s);
-                else if (key == SDLK_DOWN) nav_down(&s, s.platform_count);
+                if      (key == KEY_START)  { quit = true; break; }
+                else if (key == SDLK_UP)    nav_up(&s);
+                else if (key == SDLK_DOWN)  nav_down(&s, s.platform_count);
+                else if (key == KEY_SELECT) enter_settings(&s);
                 else if (key == KEY_A && s.platform_count > 0) {
                     s.active_platform_idx = s.selected_index;
                     char msg[128];
@@ -490,8 +634,10 @@ int main(void) {
                     }
                 }
 
-            } else { /* SCREEN_ROMS */
-                if      (key == SDLK_UP)   nav_up(&s);
+            /* ── ROM list ── */
+            } else if (s.current_screen == SCREEN_ROMS) {
+                if      (key == KEY_START) { quit = true; break; }
+                else if (key == SDLK_UP)   nav_up(&s);
                 else if (key == SDLK_DOWN) nav_down(&s, s.rom_count);
                 else if (key == KEY_B) {
                     if (s.cover) { SDL_FreeSurface(s.cover); s.cover = NULL; }
@@ -507,25 +653,93 @@ int main(void) {
                     const char* name = (rom->name && rom->name[0])
                                        ? rom->name : rom->file_name;
                     char msg[256];
-                    snprintf(msg, sizeof(msg), "Downloading %s...",
-                             name ? name : "ROM");
+                    snprintf(msg, sizeof(msg), "Downloading %s...", name ? name : "ROM");
                     render_message(&s, msg);
-                    render_message(&s,
-                        do_download(&s, rom) == 0
-                            ? "Download complete!" : "Download failed");
+                    render_message(&s, do_download(&s, rom) == 0
+                                       ? "Download complete!" : "Download failed");
                     SDL_Delay(1500);
+                }
+
+            /* ── Settings ── */
+            } else {
+                if (s.settings_mode == 0) {
+                    /* Field selection */
+                    if (key == SDLK_UP && s.settings_field > 0)
+                        s.settings_field--;
+                    else if (key == SDLK_DOWN && s.settings_field < 2)
+                        s.settings_field++;
+                    else if (key == KEY_A) {
+                        s.settings_mode = 1;
+                        s.kbd_row = 0; s.kbd_col = 0;
+                    } else if (key == KEY_START) {
+                        /* Save and return to platforms */
+                        snprintf(s.server_url, 256, "%s", s.settings_buf[0]);
+                        snprintf(s.username,   256, "%s", s.settings_buf[1]);
+                        snprintf(s.password,   256, "%s", s.settings_buf[2]);
+                        save_config(&s);
+                        if (s.platforms) {
+                            free_platform_list(s.platforms, s.platform_count);
+                            s.platforms = NULL; s.platform_count = 0;
+                        }
+                        reset_cursor(&s);
+                        load_platforms(&s);
+                        s.current_screen = SCREEN_PLATFORMS;
+                    } else if (key == KEY_B || key == KEY_SELECT) {
+                        /* Cancel — only go back if we already have a valid config */
+                        if (s.server_url[0])
+                            s.current_screen = SCREEN_PLATFORMS;
+                    }
+                } else {
+                    /* Keyboard active */
+                    const char* row  = kbd_rows[s.kbd_row];
+                    int         ncols = (int)strlen(row);
+
+                    if (key == SDLK_UP) {
+                        if (s.kbd_row > 0) {
+                            s.kbd_row--;
+                            int n = (int)strlen(kbd_rows[s.kbd_row]);
+                            if (s.kbd_col >= n) s.kbd_col = n - 1;
+                        }
+                    } else if (key == SDLK_DOWN) {
+                        if (s.kbd_row < KBD_ROW_COUNT - 1) {
+                            s.kbd_row++;
+                            int n = (int)strlen(kbd_rows[s.kbd_row]);
+                            if (s.kbd_col >= n) s.kbd_col = n - 1;
+                        }
+                    } else if (key == SDLK_LEFT) {
+                        if (s.kbd_col > 0) s.kbd_col--;
+                    } else if (key == SDLK_RIGHT) {
+                        if (s.kbd_col < ncols - 1) s.kbd_col++;
+                    } else if (key == KEY_A) {
+                        char ch = row[s.kbd_col];
+                        if      (ch == KBD_DEL) kbd_backspace(&s);
+                        else if (ch == KBD_SPC) kbd_append(&s, ' ');
+                        else                    kbd_append(&s, ch);
+                    } else if (key == KEY_B) {
+                        kbd_backspace(&s);
+                    } else if (key == KEY_START) {
+                        /* Done with this field — back to field selection */
+                        s.settings_mode = 0;
+                    } else if (key == KEY_SELECT) {
+                        /* Cancel this field's edit — restore original value */
+                        const char* orig = s.settings_field == 0 ? s.server_url
+                                         : s.settings_field == 1 ? s.username
+                                                                  : s.password;
+                        strncpy(s.settings_buf[s.settings_field], orig, 255);
+                        s.settings_buf[s.settings_field][255] = '\0';
+                        s.settings_mode = 0;
+                    }
                 }
             }
         }
 
-        /* Update cover art after debounce */
         maybe_load_cover(&s);
 
-        /* Frame-rate limited render */
         s.cur_tick_count = SDL_GetTicks();
         if (s.cur_tick_count - s.last_tick_count >= FRAME_MS) {
-            if (s.current_screen == SCREEN_PLATFORMS) render_platforms(&s);
-            else                                       render_roms(&s);
+            if      (s.current_screen == SCREEN_PLATFORMS) render_platforms(&s);
+            else if (s.current_screen == SCREEN_ROMS)      render_roms(&s);
+            else                                            render_settings(&s);
             s.last_tick_count = s.cur_tick_count;
         } else {
             SDL_Delay(1);
