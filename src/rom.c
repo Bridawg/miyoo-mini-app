@@ -2,9 +2,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-#include <stdbool.h>
+#include <curl/curl.h>
 
-// Free memory for a single ROM
 void free_rom(RomMRom* rom) {
     if (!rom) return;
 
@@ -26,17 +25,47 @@ void free_rom(RomMRom* rom) {
     free(rom->created_at);
     free(rom->updated_at);
 
-    free(rom); // Free the structure itself
+    free(rom);
 }
 
-// Download a ROM file from a URL to a destination path
-int download_rom(const char* url, const char* destination) {
+int download_rom(const char* url, const char* username, const char* password, const char* destination) {
     if (!url || !destination) return -1;
 
-    // Simulate downloading the ROM file
-    printf("Downloading ROM from %s to %s\n", url, destination);
+    FILE* fp = fopen(destination, "wb");
+    if (!fp) {
+        fprintf(stderr, "Failed to open %s for writing\n", destination);
+        return -1;
+    }
 
-    // In a real implementation, you would use a library like libcurl to download the file
-    // For the sake of this example, we'll just return a success code
+    CURL* curl = curl_easy_init();
+    if (!curl) {
+        fprintf(stderr, "Failed to initialize curl\n");
+        fclose(fp);
+        remove(destination);
+        return -1;
+    }
+
+    char userpwd[512];
+    snprintf(userpwd, sizeof(userpwd), "%s:%s",
+             username ? username : "",
+             password ? password : "");
+
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_USERPWD, userpwd);
+    curl_easy_setopt(curl, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, NULL); // default fwrite
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+
+    CURLcode res = curl_easy_perform(curl);
+    curl_easy_cleanup(curl);
+    fclose(fp);
+
+    if (res != CURLE_OK) {
+        fprintf(stderr, "Download failed: %s\n", curl_easy_strerror(res));
+        remove(destination);
+        return -1;
+    }
+
     return 0;
 }

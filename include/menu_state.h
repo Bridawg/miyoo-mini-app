@@ -1,3 +1,6 @@
+#ifndef ROMM_MENU_STATE_H
+#define ROMM_MENU_STATE_H
+
 #include "SDL/SDL.h"
 #include "SDL/SDL_ttf.h"
 
@@ -19,3 +22,5 @@ typedef struct {
     char* username;
     char* password;
 } MenuState;
+
+#endif // ROMM_MENU_STATE_H

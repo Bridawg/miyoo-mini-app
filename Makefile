@@ -1,7 +1,7 @@
 # Define the compiler and the flags
 CC=$(CROSS_COMPILE)gcc
 CFLAGS=-Wall -Wextra -O2 -DSDL=1 -I./include -I$(PREFIX)/include
-LDFLAGS=-L./lib -L$(PREFIX)/lib -ljson-c -lSDL -lSDL_ttf
+LDFLAGS=-L./lib -L$(PREFIX)/lib -ljson-c -lSDL -lSDL_ttf -lcurl
 LDLIBS=-DSDL=1 -lSDL -lpthread -lSDL_ttf
 
 # Define the target executable

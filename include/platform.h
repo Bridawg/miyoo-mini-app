@@ -1,7 +1,6 @@
 #ifndef ROMM_PLATFORM_H
 #define ROMM_PLATFORM_H
 
-#include <json-c/json.h>
 #include <stdbool.h>
 #include "rom.h"
 
@@ -46,7 +45,6 @@ void free_firmware(RomMPlatformFirmware* firmware);
 void free_platform_list(RomMPlatform* platforms, int count);
 
 // Function declarations for operations
-char* generate_authorization_header(const char* username, const char* password);
 int fetch_platform_list(const char* server_url, const char* username, const char* password, RomMPlatform** platform_list, int* platform_count);
 
 #endif // ROMM_PLATFORM_H

@@ -39,6 +39,6 @@ typedef struct RomMRom {
 void free_rom(RomMRom* rom);
 
 // Function declarations for operations
-int download_rom(const char* url, const char* destination);
+int download_rom(const char* url, const char* username, const char* password, const char* destination);
 
 #endif /* ROMM_ROM_H */

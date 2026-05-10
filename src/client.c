@@ -12,12 +12,12 @@
 #define FRAME_RATE 60.0f
 
 void cleanup_menu(MenuState* state) {
-    if (state->server_url) free(state->server_url);
-    if (state->username) free(state->username);
-    if (state->password) free(state->password);
+    free(state->server_url);
+    free(state->username);
+    free(state->password);
     if (state->platforms) free_platform_list(state->platforms, state->platform_count);
     if (state->font) TTF_CloseFont(state->font);
-    if (state->screen) SDL_FreeSurface(state->screen);
+    // state->screen is owned by SDL; freed by SDL_Quit()
     if (state->renderer) SDL_FreeSurface(state->renderer);
     TTF_Quit();
     SDL_Quit();
@@ -40,8 +40,13 @@ int init_menu(MenuState* state) {
         return -1;
     }
 
-    // Get the current display width and height
     const SDL_VideoInfo *info = SDL_GetVideoInfo();
+    if (!info) {
+        fprintf(stderr, "SDL_GetVideoInfo failed\n");
+        TTF_Quit();
+        SDL_Quit();
+        return -1;
+    }
     state->display_width = info->current_w;
     state->display_height = info->current_h;
 
@@ -82,6 +87,17 @@ int init_menu(MenuState* state) {
     state->server_url = malloc(256);
     state->username = malloc(256);
     state->password = malloc(256);
+    if (!state->server_url || !state->username || !state->password) {
+        fprintf(stderr, "Failed to allocate credential buffers\n");
+        free(state->server_url);
+        free(state->username);
+        free(state->password);
+        SDL_FreeSurface(state->renderer);
+        TTF_CloseFont(state->font);
+        TTF_Quit();
+        SDL_Quit();
+        return -1;
+    }
 
     return 0;
 }
@@ -198,6 +214,7 @@ int main() {
 
     if (read_config(&state, "/mnt/SDCARD/App/RomM/config.txt") < 0) {
         fprintf(stderr, "Failed to read configuration\n");
+        cleanup_menu(&state);
         return -1;
     }
 
