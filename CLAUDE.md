@@ -5,16 +5,29 @@ downloads ROMs from a self-hosted RomM game-library server.
 
 ## Build
 
+Requires **Docker** and, on first run, a **mounted Onion SD card** (two device
+libraries are taken from it and then cached in `vendor/`).
+
 ```bash
-# One-time sysroot setup (ARM cross-compile dependencies)
+# One-time: assemble the sysroot (~3 GB image pull on first run)
 ./scripts/setup-sysroot.sh
+# ...or point at the card explicitly:
+SDCARD=/media/you/Onion ./scripts/setup-sysroot.sh
 
-# Build
-make CROSS_COMPILE=arm-linux-gnueabihf-
+# Build + package for SD card → romm-miyoo.zip
+./scripts/build.sh
+```
 
-# Build + package for SD card
-make CROSS_COMPILE=arm-linux-gnueabihf- package
-# → produces romm-miyoo.zip; extract to SD card root
+**Do not build with the host distro's `gcc-arm-linux-gnueabihf`.** The device
+runs glibc 2.28; a modern distro's armhf toolchain (Ubuntu 24.04 "noble" and
+newer) links `__libc_start_main@GLIBC_2.34` and `__stat64_time64@GLIBC_2.34`,
+and the binary dies at exec with ``version `GLIBC_2.34' not found`` before
+`main()` runs. `scripts/build.sh` prints the required GLIBC versions after
+every build — they must stay ≤ 2.28. Cross-check against a known-good device
+binary any time this is in doubt:
+
+```bash
+readelf -V --wide /mnt/SDCARD/.tmp_update/bin/curl | grep -oE 'GLIBC_[0-9.]+' | sort -uV
 ```
 
 ## Deploy
@@ -73,21 +86,48 @@ Fallback font: `/mnt/SDCARD/App/RomM/fonts/DejaVuSans.ttf`.
 
 Opened via **Select** on the platform list. Two modes:
 - **Field selection** — Up/Down, A to enter keyboard, Start to save
-- **Keyboard mode** — d-pad navigates 6-row character grid, A types,
+- **Keyboard mode** — d-pad navigates 8-row character grid, A types,
   B deletes, Start confirms field, Select cancels
 
-No built-in Onion OS system keyboard exists — the grid is self-contained.
-Config saved to `/mnt/SDCARD/App/RomM/config.txt`. First run (no config)
-opens settings automatically.
+No built-in Onion OS system keyboard exists — the grid is self-contained, and
+it is the only way to type on the device. It therefore covers the **full
+printable ASCII set**; anything dropped from `kbd_rows` becomes a password
+nobody can enter. Config saved to `/mnt/SDCARD/App/RomM/config.txt`. First run
+(no config) opens settings automatically.
 
 ## Key implementation notes
 
 - Never call `SDL_FreeSurface(state->screen)` — SDL owns that surface
 - Use `--allow-shlib-undefined` in LDFLAGS for transitive deps (OpenSSL
   etc.) already present on device
-- `sysroot/lib` must symlink to `usr/lib` (usrmerge — libc.so linker
-  script uses absolute `/lib` path)
-- SDL 1.2.15 headers pulled from source release; sdl12-compat-dev has none
-- armhf packages: use `ports.ubuntu.com`, `apt-get download` + `dpkg -x`
-  (not `apt install`) to avoid host dependency conflicts
-- SDL_image package name is `libsdl-image1.2` (not `libsdl-image1.2-0`)
+- Toolchain image: `ghcr.io/onionui/miyoomini-toolchain` — gcc 8.3, glibc
+  2.28. Its SDL 1.2.0.11.4 / SDL_ttf 2.0.10.1 / SDL_image 1.2.0.8.4 are the
+  same builds shipped in the card's `miyoo/lib`
+- The image has **no json-c and no libcurl** (it ships cJSON), so both come
+  off the SD card — `App/pico/lib/libjson-c.so.5` and
+  `.tmp_update/lib/libcurl.so.4` — with upstream headers for the matching
+  versions (json-c 0.15, curl 8.1.0)
+- The image has **no `curl` binary**, so headers are fetched host-side
+- The image exports `CROSS_COMPILE` only for *login* shells — pin it
+  explicitly when invoking `make` non-interactively
+- Toolchain keeps libs flat in `usr/lib`; the Makefile expects
+  `usr/lib/arm-linux-gnueabihf`, so setup mirrors them as symlinks
+
+## Runtime library paths
+
+Onion exports:
+
+```
+LD_LIBRARY_PATH=/lib:/config/lib:/mnt/SDCARD/miyoo/lib:/mnt/SDCARD/.tmp_update/lib:...
+```
+
+| Library | Found in |
+|---|---|
+| `libSDL-1.2`, `libSDL_ttf`, `libSDL_image` | `miyoo/lib` |
+| `libcurl.so.4` | `.tmp_update/lib` |
+| `libc.so.6`, `libpthread.so.0` | device firmware `/lib` |
+| `libjson-c.so.5` | **nowhere on that path** — shipped in `App/RomM/lib/` |
+
+`libjson-c.so.5` exists on the card only inside `App/pico/lib`, which Onion
+never searches, so `launch.sh` prepends `$APPDIR/lib` and the `package` target
+bundles the library. Without that the app fails to load.

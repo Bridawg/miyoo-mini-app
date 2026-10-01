@@ -66,14 +66,32 @@ int fetch_platform_list(const char* server_host, const char* username, const cha
     curl_easy_setopt(curl, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, response_write_callback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, resp);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, ROMM_CONNECT_TIMEOUT);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, ROMM_TIMEOUT);
+    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
 
     CURLcode res = curl_easy_perform(curl);
+
+    long http_code = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
     curl_easy_cleanup(curl);
 
     if (res != CURLE_OK) {
         fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
         response_free(resp);
-        return -1;
+        return ROMM_ERR_NETWORK;
+    }
+
+    /* CURLE_OK only says the exchange completed. Check what came back. */
+    if (http_code == 401 || http_code == 403) {
+        fprintf(stderr, "auth rejected by server (HTTP %ld)\n", http_code);
+        response_free(resp);
+        return ROMM_ERR_AUTH;
+    }
+    if (http_code < 200 || http_code > 299) {
+        fprintf(stderr, "server returned HTTP %ld\n", http_code);
+        response_free(resp);
+        return ROMM_ERR_SERVER;
     }
 
     struct json_object* parsed_json = json_tokener_parse(response_get_memory(resp));
@@ -81,10 +99,24 @@ int fetch_platform_list(const char* server_host, const char* username, const cha
 
     if (!parsed_json) {
         fprintf(stderr, "Failed to parse JSON response\n");
-        return -1;
+        return ROMM_ERR_PARSE;
+    }
+
+    /* json_object_array_length() asserts on a non-array, and an error body is
+     * an object — so the type must be checked before it is trusted. */
+    if (!json_object_is_type(parsed_json, json_type_array)) {
+        fprintf(stderr, "expected a JSON array of platforms\n");
+        json_object_put(parsed_json);
+        return ROMM_ERR_PARSE;
     }
 
     *platform_count = json_object_array_length(parsed_json);
+    if (*platform_count == 0) {   /* legitimately empty; malloc(0) may return NULL */
+        *platform_list = NULL;
+        json_object_put(parsed_json);
+        return ROMM_OK;
+    }
+
     *platform_list = malloc(*platform_count * sizeof(RomMPlatform));
     if (!*platform_list) {
         fprintf(stderr, "Failed to allocate platform list\n");

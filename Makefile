@@ -39,8 +39,9 @@ DIST_APP = App/RomM
 
 .PHONY: package
 package: $(TARGET)
-	mkdir -p $(DIST_APP)/covers
+	mkdir -p $(DIST_APP)/covers $(DIST_APP)/lib
 	cp $(TARGET) $(DIST_APP)/
+	cp $(SYSROOT)/usr/lib/libjson-c.so.5 $(DIST_APP)/lib/
 	cd App && zip -r ../romm-miyoo.zip RomM/
 	@echo ""
 	@echo "Created romm-miyoo.zip"

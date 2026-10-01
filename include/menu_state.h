@@ -64,6 +64,14 @@ typedef struct {
     int  kbd_row;
     int  kbd_col;
     char settings_buf[3][256];  /* working copies while editing         */
+
+    /* Display */
+    int  rotate_180;            /* Mini Plus panel is mounted upside down */
+    int  line_h;                /* TTF_FontHeight(list_font) — themes set the
+                                 * size, so container heights must follow it
+                                 * rather than being hardcoded              */
+    int  title_h;               /* TTF_FontHeight(title_font)                */
+    int  kbd_cell_h;            /* keyboard row pitch, derived from line_h   */
 } MenuState;
 
 #endif /* ROMM_MENU_STATE_H */

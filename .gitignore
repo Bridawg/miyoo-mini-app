@@ -8,3 +8,5 @@ romm-miyoo.zip
 include/json-c
 lib/libjson-c.a
 sysroot/
+vendor/
+App/RomM/lib/

@@ -67,14 +67,31 @@ int fetch_rom_list(const char* server_host, const char* username, const char* pa
     curl_easy_setopt(curl, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, response_write_callback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, resp);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, ROMM_CONNECT_TIMEOUT);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, ROMM_TIMEOUT);
+    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
 
     CURLcode res = curl_easy_perform(curl);
+
+    long http_code = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
     curl_easy_cleanup(curl);
 
     if (res != CURLE_OK) {
         fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
         response_free(resp);
-        return -1;
+        return ROMM_ERR_NETWORK;
+    }
+
+    if (http_code == 401 || http_code == 403) {
+        fprintf(stderr, "auth rejected by server (HTTP %ld)\n", http_code);
+        response_free(resp);
+        return ROMM_ERR_AUTH;
+    }
+    if (http_code < 200 || http_code > 299) {
+        fprintf(stderr, "server returned HTTP %ld\n", http_code);
+        response_free(resp);
+        return ROMM_ERR_SERVER;
     }
 
     struct json_object* parsed = json_tokener_parse(response_get_memory(resp));
@@ -82,7 +99,7 @@ int fetch_rom_list(const char* server_host, const char* username, const char* pa
 
     if (!parsed) {
         fprintf(stderr, "Failed to parse ROM JSON\n");
-        return -1;
+        return ROMM_ERR_PARSE;
     }
 
     /* RomM returns { "items": [...], "total": N } or a bare array */
@@ -91,7 +108,21 @@ int fetch_rom_list(const char* server_host, const char* username, const char* pa
         items = parsed;
     }
 
+    /* json_object_array_length() asserts on a non-array — an error body would
+     * reach here as an object, so verify before trusting it. */
+    if (!json_object_is_type(items, json_type_array)) {
+        fprintf(stderr, "expected a JSON array of ROMs\n");
+        json_object_put(parsed);
+        return ROMM_ERR_PARSE;
+    }
+
     *rom_count = json_object_array_length(items);
+    if (*rom_count == 0) {        /* legitimately empty */
+        *rom_list = NULL;
+        json_object_put(parsed);
+        return ROMM_OK;
+    }
+
     *rom_list = calloc(*rom_count, sizeof(RomMRom));
     if (!*rom_list) {
         fprintf(stderr, "Failed to allocate ROM list\n");
@@ -154,13 +185,29 @@ int download_rom(const char* url, const char* username, const char* password, co
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, NULL);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, ROMM_CONNECT_TIMEOUT);
+    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+    /* No overall timeout — a large ROM on slow wifi is legitimately slow.
+     * Abort only if the transfer genuinely stalls. */
+    curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 1L);
+    curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, 30L);
 
     CURLcode res = curl_easy_perform(curl);
+
+    long http_code = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
     curl_easy_cleanup(curl);
     fclose(fp);
 
     if (res != CURLE_OK) {
         fprintf(stderr, "Download failed: %s\n", curl_easy_strerror(res));
+        remove(destination);
+        return -1;
+    }
+
+    /* Without this a 401 or 404 body is written to disk as if it were the ROM. */
+    if (http_code < 200 || http_code > 299) {
+        fprintf(stderr, "Download failed: server returned HTTP %ld\n", http_code);
         remove(destination);
         return -1;
     }
